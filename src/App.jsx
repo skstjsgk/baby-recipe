@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 
 const SUPABASE_URL = "https://qkdorvgmqfruqpbpkmnm.supabase.co";
-const SUPABASE_KEY = "qkdorvgmqfruqpbpkmnm";
+const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFrZG9ydmdtcWZydXFwYnBrbW5tIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQwMzQzMTYsImV4cCI6MjA4OTYxMDMxNn0.VWfTGdKejh_9uTQ_VwbIEnlB8V9E3e_Xj2x3sj31I8c";
 
 const sbGet = async (key) => {
   const res = await fetch(`${SUPABASE_URL}/rest/v1/shared_data?key=eq.${encodeURIComponent(key)}&select=value`, {
