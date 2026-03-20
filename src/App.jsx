@@ -1,5 +1,24 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 
+const SUPABASE_URL = "https://qkdorvgmqfruqpbpkmnm.supabase.co";
+const SUPABASE_KEY = "qkdorvgmqfruqpbpkmnm";
+
+const sbGet = async (key) => {
+  const res = await fetch(`${SUPABASE_URL}/rest/v1/shared_data?key=eq.${encodeURIComponent(key)}&select=value`, {
+    headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` }
+  });
+  const data = await res.json();
+  return data?.[0]?.value ? JSON.parse(data[0].value) : null;
+};
+
+const sbSet = async (key, value) => {
+  await fetch(`${SUPABASE_URL}/rest/v1/shared_data`, {
+    method: "POST",
+    headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}`, "Content-Type": "application/json", Prefer: "resolution=merge-duplicates" },
+    body: JSON.stringify({ key, value: JSON.stringify(value), updated_at: new Date().toISOString() })
+  });
+};
+
 const SYSTEM_PROMPT = `당신은 유아식 전문 영양사이자 요리사입니다. 주어진 조건에 맞는 유아식 레시피 5개를 추천해주세요.
 
 반드시 아래 형식을 정확히 지켜서 답하세요.
@@ -98,9 +117,8 @@ const CAT_COLOR = { "밥": { bg: "#e8f5e9", border: "#a5d6a7", text: "#2e7d32" }
 const DEFAULT_FRIDGE = ["달걀", "두부", "당근", "애호박", "브로콜리", "우유"];
 const DEFAULT_PANTRY = ["밥", "파스타", "감자", "고구마", "양파", "올리브오일"];
 const DEFAULT_FOCUS  = ["닭고기", "소고기"];
-const SK = { FRIDGE: "fridgeIngredients", PANTRY: "pantryIngredients", FOCUS: "focusIngredients", STOCK: "foodStock", PLANS: "mealPlans", SAVED_RECIPES: "savedRecipes" };
+const SK = { FRIDGE: "b_fridgeIngredients", PANTRY: "b_pantryIngredients", FOCUS: "b_focusIngredients", STOCK: "b_foodStock", PLANS: "b_mealPlans", SAVED_RECIPES: "b_savedRecipes" };
 
-// ── 검색 필터 컴포넌트 ──
 function SearchBar({ value, onChange, placeholder }) {
   return (
     <div style={{ position: "relative", marginBottom: 12 }}>
@@ -134,75 +152,75 @@ function FilterChips({ label, options, selected, onToggle, colorMap }) {
 
 export default function BabyRecipeApp() {
   const [tab, setTab] = useState("recipe");
-
-  // 레시피 탭
-  const [recipes, setRecipes]               = useState(null);
-  const [loading, setLoading]               = useState(false);
-  const [error, setError]                   = useState(null);
+  const [recipes, setRecipes] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
   const [selectedRecipe, setSelectedRecipe] = useState(null);
-  const [babyAge, setBabyAge]               = useState(20);
-  const [category, setCategory]             = useState("전체");
-  const [fridgeItems, setFridgeItems]       = useState(DEFAULT_FRIDGE);
-  const [pantryItems, setPantryItems]       = useState(DEFAULT_PANTRY);
-  const [focusItems, setFocusItems]         = useState(DEFAULT_FOCUS);
-  const [activeSection, setActiveSection]   = useState("fridge");
-  const [editMode, setEditMode]             = useState(false);
-  const [newIngInput, setNewIngInput]       = useState("");
-  const [savedRecipes, setSavedRecipes]     = useState([]);
-  const [recipeView, setRecipeView]         = useState("search"); // "search" | "saved" | "aisearch"
-  const [justSaved, setJustSaved]           = useState({});
-  const [addedToStock, setAddedToStock]     = useState({});
+  const [babyAge, setBabyAge] = useState(20);
+  const [category, setCategory] = useState("전체");
+  const [fridgeItems, setFridgeItems] = useState(DEFAULT_FRIDGE);
+  const [pantryItems, setPantryItems] = useState(DEFAULT_PANTRY);
+  const [focusItems, setFocusItems] = useState(DEFAULT_FOCUS);
+  const [activeSection, setActiveSection] = useState("fridge");
+  const [editMode, setEditMode] = useState(false);
+  const [newIngInput, setNewIngInput] = useState("");
+  const [savedRecipes, setSavedRecipes] = useState([]);
+  const [recipeView, setRecipeView] = useState("search");
+  const [justSaved, setJustSaved] = useState({});
+  const [addedToStock, setAddedToStock] = useState({});
+  const [syncStatus, setSyncStatus] = useState("idle"); // idle | syncing | synced | error
   const isComposing = useRef(false);
 
-  // AI 검색
-  const [aiSearchQuery, setAiSearchQuery]   = useState("");
-  const [aiSearchAge, setAiSearchAge]       = useState(20);
+  const [aiSearchQuery, setAiSearchQuery] = useState("");
+  const [aiSearchAge, setAiSearchAge] = useState(20);
   const [aiSearchResults, setAiSearchResults] = useState(null);
   const [aiSearchLoading, setAiSearchLoading] = useState(false);
-  const [aiSearchError, setAiSearchError]   = useState(null);
+  const [aiSearchError, setAiSearchError] = useState(null);
   const [aiSelectedRecipe, setAiSelectedRecipe] = useState(null);
-  const [aiJustSaved, setAiJustSaved]       = useState({});
+  const [aiJustSaved, setAiJustSaved] = useState({});
   const [aiAddedToStock, setAiAddedToStock] = useState({});
   const aiIsComposing = useRef(false);
 
-  // 저장된 레시피 검색/필터
-  const [savedSearch, setSavedSearch]       = useState("");
+  const [savedSearch, setSavedSearch] = useState("");
   const [savedFilterCat, setSavedFilterCat] = useState([]);
   const [savedFilterDiff, setSavedFilterDiff] = useState([]);
 
-  // 음식 재고 탭
-  const [foodStock, setFoodStock]           = useState({ 밥: [], 국: [], 메인요리: [], 반찬: [], 간식: [], 디저트: [] });
-  const [stockCat, setStockCat]             = useState("밥");
-  const [stockInput, setStockInput]         = useState("");
+  const [foodStock, setFoodStock] = useState({ 밥: [], 국: [], 메인요리: [], 반찬: [], 간식: [], 디저트: [] });
+  const [stockCat, setStockCat] = useState("밥");
+  const [stockInput, setStockInput] = useState("");
   const stockIsComposing = useRef(false);
 
-  // 식단 짜기 탭
-  const [planDays, setPlanDays]             = useState(3);
-  const [planLoading, setPlanLoading]       = useState(false);
-  const [planError, setPlanError]           = useState(null);
-  const [currentPlan, setCurrentPlan]       = useState(null);
-  const [savedPlans, setSavedPlans]         = useState([]);
-  const [viewingPlan, setViewingPlan]       = useState(null);
-  const [editingCell, setEditingCell]       = useState(null);
-  const [editCellVal, setEditCellVal]       = useState("");
+  const [planDays, setPlanDays] = useState(3);
+  const [planLoading, setPlanLoading] = useState(false);
+  const [planError, setPlanError] = useState(null);
+  const [currentPlan, setCurrentPlan] = useState(null);
+  const [savedPlans, setSavedPlans] = useState([]);
+  const [viewingPlan, setViewingPlan] = useState(null);
+  const [editingCell, setEditingCell] = useState(null);
+  const [editCellVal, setEditCellVal] = useState("");
 
   useEffect(() => {
     (async () => {
+      setSyncStatus("syncing");
       try {
-        const load = async (k, def) => { try { const r = await window.storage.get(k); return r?.value ? JSON.parse(r.value) : def; } catch { return def; } };
+        const load = async (k, def) => { try { const v = await sbGet(k); return v ?? def; } catch { return def; } };
         setFridgeItems(await load(SK.FRIDGE, DEFAULT_FRIDGE));
         setPantryItems(await load(SK.PANTRY, DEFAULT_PANTRY));
         setFocusItems(await load(SK.FOCUS, DEFAULT_FOCUS));
         setFoodStock(await load(SK.STOCK, { 밥: [], 국: [], 메인요리: [], 반찬: [], 간식: [], 디저트: [] }));
         setSavedPlans(await load(SK.PLANS, []));
         setSavedRecipes(await load(SK.SAVED_RECIPES, []));
-      } catch {}
+        setSyncStatus("synced");
+      } catch { setSyncStatus("error"); }
     })();
   }, []);
 
-  const save = useCallback(async (k, v) => { try { await window.storage.set(k, JSON.stringify(v)); } catch {} }, []);
+  const save = useCallback(async (k, v) => {
+    setSyncStatus("syncing");
+    try { await sbSet(k, v); setSyncStatus("synced"); }
+    catch { setSyncStatus("error"); }
+  }, []);
 
-  // 재료 관리
   const currentItems = activeSection === "fridge" ? fridgeItems : activeSection === "pantry" ? pantryItems : focusItems;
   const setCurrentItems = useCallback((list) => {
     if (activeSection === "fridge")      { setFridgeItems(list); save(SK.FRIDGE, list); }
@@ -220,7 +238,6 @@ export default function BabyRecipeApp() {
     const u = [...focusItems, item]; setFocusItems(u); save(SK.FOCUS, u);
   };
 
-  // 레시피 저장
   const doSaveRecipe = (recipe, setJustSavedFn, idx) => {
     if (savedRecipes.some(s => s.name === recipe.name)) return;
     const updated = [{ ...recipe, savedAt: new Date().toLocaleDateString("ko-KR") }, ...savedRecipes];
@@ -243,7 +260,6 @@ export default function BabyRecipeApp() {
     setSavedRecipes(updated); save(SK.SAVED_RECIPES, updated);
   };
 
-  // 음식 재고 관리
   const commitAddStock = useCallback((val) => {
     const t = val.trim(); if (!t || foodStock[stockCat]?.includes(t)) return;
     const u = { ...foodStock, [stockCat]: [...(foodStock[stockCat] || []), t] };
@@ -257,7 +273,6 @@ export default function BabyRecipeApp() {
 
   const totalStock = Object.values(foodStock).flat().length;
 
-  // 파싱
   const parseRecipes = (text, fallbackItems = []) => {
     return text.split("===RECIPE_START===").slice(1).map(block => {
       const get = (key) => { const m = block.match(new RegExp(key + ":\\s*(.+)")); return m ? m[1].trim() : ""; };
@@ -290,7 +305,6 @@ export default function BabyRecipeApp() {
     return data.content?.map(b => b.text || "").join("") || "";
   };
 
-  // 재료 기반 레시피 추천
   const fetchRecipes = async () => {
     if (!fridgeItems.length && !pantryItems.length && !focusItems.length) return;
     setLoading(true); setError(null); setRecipes(null); setSelectedRecipe(null); setJustSaved({}); setAddedToStock({});
@@ -309,7 +323,6 @@ export default function BabyRecipeApp() {
     finally { setLoading(false); }
   };
 
-  // AI 검색
   const fetchAiSearch = async () => {
     if (!aiSearchQuery.trim()) return;
     setAiSearchLoading(true); setAiSearchError(null); setAiSearchResults(null); setAiSelectedRecipe(null); setAiJustSaved({}); setAiAddedToStock({});
@@ -323,7 +336,6 @@ export default function BabyRecipeApp() {
     finally { setAiSearchLoading(false); }
   };
 
-  // 식단 생성
   const fetchPlan = async () => {
     if (totalStock === 0) { setPlanError("음식 재고가 없어요!"); return; }
     setPlanLoading(true); setPlanError(null); setCurrentPlan(null); setViewingPlan(null);
@@ -357,7 +369,6 @@ export default function BabyRecipeApp() {
     setEditingCell(null);
   };
 
-  // 저장된 레시피 필터링
   const filteredSaved = savedRecipes.filter(r => {
     const q = savedSearch.toLowerCase();
     const matchText = !q || r.name.toLowerCase().includes(q) ||
@@ -376,6 +387,12 @@ export default function BabyRecipeApp() {
   ];
   const activeInfo = SECTIONS.find(s => s.key === activeSection);
 
+  const SyncBadge = () => (
+    <span style={{ fontSize: 11, padding: "2px 8px", borderRadius: 10, background: syncStatus === "synced" ? "#e8f5e9" : syncStatus === "syncing" ? "#fff3e0" : "#fce4ec", color: syncStatus === "synced" ? "#2e7d32" : syncStatus === "syncing" ? "#e65100" : "#c62828", fontWeight: 600 }}>
+      {syncStatus === "synced" ? "☁️ 동기화됨" : syncStatus === "syncing" ? "🔄 저장 중..." : "⚠️ 오류"}
+    </span>
+  );
+
   const RecipeCard = ({ r, idx, isSavedView = false, justSavedMap, addedToStockMap, onSave, onAddToStock }) => {
     const alreadySaved = isSavedView || savedRecipes.some(s => s.name === r.name);
     const alreadyInStock = foodStock[r.category]?.includes(r.name);
@@ -385,11 +402,11 @@ export default function BabyRecipeApp() {
           <div style={{ fontSize: 28 }}>{r.emoji}</div>
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
             {!isSavedView && (
-              <button onClick={() => onSave(r, idx)} style={{ background: justSavedMap?.[idx] ? "#e8f5e9" : alreadySaved ? "#f5f5f5" : "#fff3e0", color: justSavedMap?.[idx] ? "#2e7d32" : alreadySaved ? "#bdbdbd" : "#e65100", border: "1.5px solid", borderColor: justSavedMap?.[idx] ? "#a5d6a7" : alreadySaved ? "#e0e0e0" : "#ffcc80", borderRadius: 10, padding: "6px 12px", fontSize: 12, fontWeight: 600, cursor: alreadySaved ? "default" : "pointer", fontFamily: "inherit", transition: "all 0.2s" }}>
+              <button onClick={() => onSave(r, idx)} style={{ background: justSavedMap?.[idx] ? "#e8f5e9" : alreadySaved ? "#f5f5f5" : "#fff3e0", color: justSavedMap?.[idx] ? "#2e7d32" : alreadySaved ? "#bdbdbd" : "#e65100", border: "1.5px solid", borderColor: justSavedMap?.[idx] ? "#a5d6a7" : alreadySaved ? "#e0e0e0" : "#ffcc80", borderRadius: 10, padding: "6px 12px", fontSize: 12, fontWeight: 600, cursor: alreadySaved ? "default" : "pointer", fontFamily: "inherit" }}>
                 {justSavedMap?.[idx] ? "✓ 저장됨" : alreadySaved ? "이미 저장됨" : "🔖 저장"}
               </button>
             )}
-            <button onClick={() => onAddToStock(r, idx)} style={{ background: addedToStockMap?.[idx] ? "#e8f5e9" : alreadyInStock ? "#f5f5f5" : CAT_COLOR[r.category]?.bg || "#fff3e0", color: addedToStockMap?.[idx] ? "#2e7d32" : alreadyInStock ? "#bdbdbd" : CAT_COLOR[r.category]?.text || "#e65100", border: "1.5px solid", borderColor: addedToStockMap?.[idx] ? "#a5d6a7" : alreadyInStock ? "#e0e0e0" : CAT_COLOR[r.category]?.border || "#ffcc80", borderRadius: 10, padding: "6px 12px", fontSize: 12, fontWeight: 600, cursor: alreadyInStock ? "default" : "pointer", fontFamily: "inherit", transition: "all 0.2s" }}>
+            <button onClick={() => onAddToStock(r, idx)} style={{ background: addedToStockMap?.[idx] ? "#e8f5e9" : alreadyInStock ? "#f5f5f5" : CAT_COLOR[r.category]?.bg || "#fff3e0", color: addedToStockMap?.[idx] ? "#2e7d32" : alreadyInStock ? "#bdbdbd" : CAT_COLOR[r.category]?.text || "#e65100", border: "1.5px solid", borderColor: addedToStockMap?.[idx] ? "#a5d6a7" : alreadyInStock ? "#e0e0e0" : CAT_COLOR[r.category]?.border || "#ffcc80", borderRadius: 10, padding: "6px 12px", fontSize: 12, fontWeight: 600, cursor: alreadyInStock ? "default" : "pointer", fontFamily: "inherit" }}>
               {addedToStockMap?.[idx] ? "✓ 재고에 추가됨" : alreadyInStock ? "재고에 있음" : `${CAT_EMOJI[r.category] || "🍽"} 재고에 추가`}
             </button>
           </div>
@@ -476,6 +493,7 @@ export default function BabyRecipeApp() {
           <div style={{ fontFamily: "'Gaegu', cursive", fontSize: 22, color: "#ff8f00", lineHeight: 1 }}>냠냠 레시피</div>
           <div style={{ fontSize: 12, color: "#bcaaa4", marginTop: 2 }}>집에 있는 재료로 만드는 유아식</div>
         </div>
+        <div style={{ marginLeft: "auto" }}><SyncBadge /></div>
       </div>
 
       <div style={{ display: "flex", background: "white", borderBottom: "1px solid #f0f0f0" }}>
@@ -488,15 +506,13 @@ export default function BabyRecipeApp() {
 
       <div style={{ maxWidth: 600, margin: "0 auto", padding: "24px 16px" }}>
 
-        {/* ══ 레시피 탭 ══ */}
         {tab === "recipe" && (<>
           <div style={{ display: "flex", gap: 8, marginBottom: 20, overflowX: "auto", paddingBottom: 4 }}>
-            {[{ key: "search", label: "🥕 재료로 추천", }, { key: "aisearch", label: "🔍 AI 검색" }, { key: "saved", label: `🔖 저장됨 ${savedRecipes.length > 0 ? `(${savedRecipes.length})` : ""}` }].map(({ key, label }) => (
+            {[{ key: "search", label: "🥕 재료로 추천" }, { key: "aisearch", label: "🔍 AI 검색" }, { key: "saved", label: `🔖 저장됨 ${savedRecipes.length > 0 ? `(${savedRecipes.length})` : ""}` }].map(({ key, label }) => (
               <button key={key} className={`sub-toggle ${recipeView === key ? "active" : ""}`} onClick={() => setRecipeView(key)}>{label}</button>
             ))}
           </div>
 
-          {/* 재료 기반 추천 */}
           {recipeView === "search" && (<>
             <div style={{ background: "white", borderRadius: 20, padding: 24, boxShadow: "0 2px 16px rgba(0,0,0,0.06)", marginBottom: 16 }}>
               <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
@@ -592,7 +608,6 @@ export default function BabyRecipeApp() {
             )}
           </>)}
 
-          {/* AI 검색 */}
           {recipeView === "aisearch" && (
             <div className="fade-in">
               <div style={{ background: "white", borderRadius: 20, padding: 24, boxShadow: "0 2px 16px rgba(0,0,0,0.06)", marginBottom: 16 }}>
@@ -639,7 +654,6 @@ export default function BabyRecipeApp() {
             </div>
           )}
 
-          {/* 저장된 레시피 */}
           {recipeView === "saved" && (
             <div className="fade-in">
               {savedRecipes.length === 0
@@ -649,7 +663,6 @@ export default function BabyRecipeApp() {
                     <div style={{ color: "#bcaaa4", fontSize: 12, marginTop: 6 }}>레시피 검색 후 저장 버튼을 눌러보세요!</div>
                   </div>
                 : (<>
-                  {/* 검색/필터 */}
                   <div style={{ background: "white", borderRadius: 20, padding: 20, boxShadow: "0 2px 16px rgba(0,0,0,0.06)", marginBottom: 16 }}>
                     <SearchBar value={savedSearch} onChange={setSavedSearch} placeholder="레시피 이름, 재료로 검색..." />
                     <FilterChips label="카테고리" options={FOOD_CATS} selected={savedFilterCat}
@@ -680,7 +693,6 @@ export default function BabyRecipeApp() {
           )}
         </>)}
 
-        {/* ══ 음식 재고 탭 ══ */}
         {tab === "stock" && (
           <div className="fade-in">
             <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 16 }}>
@@ -728,8 +740,6 @@ export default function BabyRecipeApp() {
               </div>
               <div style={{ marginTop: 12, fontSize: 12, color: "#bcaaa4", textAlign: "right" }}>총 {totalStock}가지 음식</div>
             </div>
-
-            {/* 전체 아이템 리스트 */}
             {totalStock > 0 && (
               <div style={{ background: "white", borderRadius: 20, padding: 20, boxShadow: "0 2px 16px rgba(0,0,0,0.06)", marginTop: 12 }}>
                 <div style={{ fontSize: 13, fontWeight: 700, color: "#a1887f", marginBottom: 14 }}>📋 전체 음식 목록</div>
@@ -755,7 +765,6 @@ export default function BabyRecipeApp() {
           </div>
         )}
 
-        {/* ══ 식단 짜기 탭 ══ */}
         {tab === "plan" && (
           <div className="fade-in">
             <div style={{ background: "white", borderRadius: 20, padding: 24, boxShadow: "0 2px 16px rgba(0,0,0,0.06)", marginBottom: 16 }}>
@@ -778,9 +787,6 @@ export default function BabyRecipeApp() {
                 <div style={{ fontSize: 48, marginBottom: 16, display: "inline-block", animation: "spin 1.5s linear infinite" }}>🍱</div>
                 <div style={{ fontWeight: 700, color: "#5d4037", fontSize: 15, marginBottom: 8 }}>식단 짜는 중...</div>
                 <div style={{ color: "#a1887f", fontSize: 13, marginBottom: 20 }}>영양 균형을 맞춰 {planDays}일 식단을 구성하고 있어요</div>
-                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                  {[1,2,3].map(i => <div key={i} className="shimmer" style={{ height: 14, width: i % 2 === 0 ? "75%" : "100%", margin: "0 auto" }} />)}
-                </div>
               </div>
             )}
             {planError && <div style={{ background: "#fff3f3", border: "1.5px solid #ffcdd2", borderRadius: 16, padding: 16, color: "#c62828", fontSize: 14, textAlign: "center", marginBottom: 16 }}>⚠️ {planError}</div>}
